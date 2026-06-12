@@ -63,6 +63,9 @@ class JSONScraperGraph(AbstractGraph):
         fetch_node = FetchNode(
             input="json | json_dir",
             output=["doc"],
+            node_config={
+                "experimental": self.config.get("experimental"),
+            },
         )
 
         generate_answer_node = GenerateAnswerNode(

@@ -70,6 +70,9 @@ class CSVScraperGraph(AbstractGraph):
         fetch_node = FetchNode(
             input="csv | csv_dir",
             output=["doc"],
+            node_config={
+                "experimental": self.config.get("experimental"),
+            },
         )
 
         generate_answer_node = GenerateAnswerCSVNode(

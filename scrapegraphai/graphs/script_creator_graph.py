@@ -72,6 +72,7 @@ class ScriptCreatorGraph(AbstractGraph):
                 "loader_kwargs": self.config.get("loader_kwargs", {}),
                 "script_creator": True,
                 "storage_state": self.config.get("storage_state"),
+                "experimental": self.config.get("experimental"),
             },
         )
 

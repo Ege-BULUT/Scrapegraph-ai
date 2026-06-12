@@ -65,7 +65,13 @@ class SpeechGraph(AbstractGraph):
             BaseGraph: A graph instance representing the web scraping and audio generation workflow.
         """
 
-        fetch_node = FetchNode(input="url | local_dir", output=["doc"])
+        fetch_node = FetchNode(
+            input="url | local_dir",
+            output=["doc"],
+            node_config={
+                "experimental": self.config.get("experimental"),
+            },
+        )
 
         parse_node = ParseNode(
             input="doc",

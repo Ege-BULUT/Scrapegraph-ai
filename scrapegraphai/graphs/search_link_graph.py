@@ -59,6 +59,7 @@ class SearchLinkGraph(AbstractGraph):
                 "cut": self.config.get("cut", True),
                 "loader_kwargs": self.config.get("loader_kwargs", {}),
                 "storage_state": self.config.get("storage_state"),
+                "experimental": self.config.get("experimental"),
             },
         )
 

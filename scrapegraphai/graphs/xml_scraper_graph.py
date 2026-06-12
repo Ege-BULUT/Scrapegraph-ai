@@ -62,7 +62,13 @@ class XMLScraperGraph(AbstractGraph):
             BaseGraph: A graph instance representing the web scraping workflow.
         """
 
-        fetch_node = FetchNode(input="xml | xml_dir", output=["doc"])
+        fetch_node = FetchNode(
+            input="xml | xml_dir",
+            output=["doc"],
+            node_config={
+                "experimental": self.config.get("experimental"),
+            },
+        )
 
         generate_answer_node = GenerateAnswerNode(
             input="user_prompt & (relevant_chunks | doc)",

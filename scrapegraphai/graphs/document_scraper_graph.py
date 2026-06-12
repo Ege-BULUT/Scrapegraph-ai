@@ -67,6 +67,7 @@ class DocumentScraperGraph(AbstractGraph):
             node_config={
                 "loader_kwargs": self.config.get("loader_kwargs", {}),
                 "storage_state": self.config.get("storage_state", None),
+                "experimental": self.config.get("experimental"),
             },
         )
         parse_node = ParseNode(
