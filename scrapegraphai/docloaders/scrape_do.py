@@ -44,7 +44,7 @@ def scrape_do_fetch(
         )
     else:
         api_scrape_do_url = os.getenv("API_SCRAPE_DO_URL", "api.scrape.do")
-        url = f"http://{api_scrape_do_url}?token={token}&url={encoded_url}"
+        url = f"https://{api_scrape_do_url}?token={token}&url={encoded_url}"
         response = requests.get(url)
 
     return response.text

@@ -443,10 +443,27 @@ class GenerateCodeNode(BaseNode):
             tuple: A tuple containing a boolean indicating if
             the execution was successful and the result or error message.
         """
+        safe_builtins = {
+            "abs": abs, "all": all, "any": any, "bool": bool, "chr": chr,
+            "dict": dict, "enumerate": enumerate, "filter": filter,
+            "float": float, "format": format, "frozenset": frozenset,
+            "getattr": getattr, "hasattr": hasattr, "hash": hash,
+            "int": int, "isinstance": isinstance, "issubclass": issubclass,
+            "len": len, "list": list, "map": map, "max": max, "min": min,
+            "next": next, "ord": ord, "pow": pow, "range": range,
+            "repr": repr, "reversed": reversed, "round": round,
+            "set": set, "slice": slice, "sorted": sorted, "str": str,
+            "sum": sum, "tuple": tuple, "type": type, "zip": zip,
+            "True": True, "False": False, "None": None,
+            "Exception": Exception, "ValueError": ValueError,
+            "TypeError": TypeError, "KeyError": KeyError,
+            "IndexError": IndexError, "AttributeError": AttributeError,
+            "StopIteration": StopIteration, "RuntimeError": RuntimeError,
+        }
         sandbox_globals = {
             "BeautifulSoup": BeautifulSoup,
             "re": re,
-            "__builtins__": __builtins__,
+            "__builtins__": safe_builtins,
         }
 
         old_stdout = sys.stdout

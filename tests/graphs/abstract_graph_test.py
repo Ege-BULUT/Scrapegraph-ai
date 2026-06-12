@@ -14,22 +14,26 @@ Tests for the AbstractGraph.
 """
 
 
-def test_llm_missing_tokens(monkeypatch, capsys):
-    """Test that missing model tokens causes default to 8192 with an appropriate warning printed."""
-    # Patch out models_tokens to simulate missing tokens for the given model
+def test_llm_missing_tokens(monkeypatch):
+    """Test that missing model tokens causes default to 8192 with an appropriate warning logged."""
+    import io
+    import logging
     from scrapegraphai.graphs import abstract_graph
+
+    log_capture = io.StringIO()
+    handler = logging.StreamHandler(log_capture)
+    abstract_graph.logger.addHandler(handler)
 
     monkeypatch.setattr(
         abstract_graph, "models_tokens", {"openai": {"gpt-3.5-turbo": 4096}}
     )
     llm_config = {"model": "openai/not-known-model", "openai_api_key": "test"}
-    # Patch _create_graph to return a dummy graph to avoid real graph creation
     with patch.object(TestGraph, "_create_graph", return_value=Mock(nodes=[])):
         graph = TestGraph("Test prompt", {"llm": llm_config})
-    # Since "not-known-model" is missing, it should default to 8192
+
+    abstract_graph.logger.removeHandler(handler)
     assert graph.model_token == 8192
-    captured = capsys.readouterr().out
-    assert "Max input tokens for model" in captured
+    assert "Max input tokens for model" in log_capture.getvalue()
 
 
 def test_burr_kwargs():
