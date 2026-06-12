@@ -1,4 +1,5 @@
 import asyncio
+import os
 import subprocess
 import time
 from typing import Any, AsyncIterator, Iterator, List, Optional
@@ -97,14 +98,56 @@ class ObscuraLoader(BaseLoader):
                 "Download from https://github.com/h4ckf0r0day/obscura/releases"
             )
 
+    def _start_chrome(self):
+        """Launch Chrome/Chromium with remote debugging port."""
+        logger.info("Launching Chrome with --remote-debugging-port=9222...")
+        candidates = [
+            "chrome", "chromium", "google-chrome", "google-chrome-stable",
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files\Chromium\Application\chrome.exe",
+        ]
+        chrome_path = None
+        for cmd in candidates:
+            try:
+                subprocess.run([cmd, "--version"], capture_output=True, timeout=5)
+                chrome_path = cmd
+                break
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+        if chrome_path is None:
+            # Check common Windows paths
+            for winpath in [p for p in candidates if p.startswith("C:")]:
+                if os.path.isfile(winpath):
+                    chrome_path = winpath
+                    break
+        if chrome_path is None:
+            raise RuntimeError(
+                "Chrome/Chromium not found. Install Chrome or set auto_start to a different mode."
+            )
+
+        user_data_dir = os.path.join(os.path.expanduser("~"), ".scrapegraph", "chrome-debug")
+        os.makedirs(user_data_dir, exist_ok=True)
+
+        self._process = subprocess.Popen(
+            [chrome_path, f"--remote-debugging-port=9222", f"--user-data-dir={user_data_dir}",
+             "--no-first-run", "--no-default-browser-check"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        time.sleep(3)
+        logger.info(f"Chrome launched with PID {self._process.pid}")
+
     def _ensure_running(self):
         """Ensure Obscura is running, auto-starting if configured."""
         if self.auto_start == "docker":
             self._start_docker()
         elif self.auto_start == "subprocess":
             self._start_subprocess()
+        elif self.auto_start == "chrome":
+            self._start_chrome()
         elif self.auto_start is not None:
-            raise ValueError(f"Unknown auto_start mode: {self.auto_start}")
+            raise ValueError(f"Unknown auto_start mode: {self.auto_start} (supported: docker, subprocess, chrome)")
 
     def _cleanup(self):
         """Clean up any started processes."""
@@ -117,6 +160,12 @@ class ObscuraLoader(BaseLoader):
                     ["docker", "stop", "scrapegraph-obscura"],
                     capture_output=True, timeout=10,
                 )
+            except Exception:
+                pass
+        elif self.auto_start == "chrome":
+            try:
+                if self._process and self._process.poll() is None:
+                    self._process.terminate()
             except Exception:
                 pass
 
@@ -140,6 +189,7 @@ class ObscuraLoader(BaseLoader):
                 )
                 page = await context.new_page()
                 await page.goto(url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
+                await page.wait_for_timeout(3000)
                 content = await page.content()
                 await page.close()
                 return content
@@ -147,8 +197,8 @@ class ObscuraLoader(BaseLoader):
             hint = ""
             if "ECONNREFUSED" in str(exc):
                 hint = (
-                    " Make sure Chrome/Chromium is running with --remote-debugging-port=9222, "
-                    "or set auto_start='docker'/'subprocess' in the Obscura config."
+                    " Make sure Chrome is running with --remote-debugging-port=9222, "
+                    "or set auto_start='docker'/'subprocess'/'chrome' in the Obscura config."
                 )
             raise RuntimeError(f"Obscura CDP connection failed: {exc}.{hint}") from exc
 

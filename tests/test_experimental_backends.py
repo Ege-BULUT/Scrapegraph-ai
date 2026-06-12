@@ -45,7 +45,7 @@ class TestCrawl4aiLoader:
         assert loader.headless is True
         assert loader.output_format == "markdown"
         assert loader.proxy is None
-        assert loader.page_timeout == 30000
+        assert loader.page_timeout == 60000
 
     def test_instantiation_with_config(self):
         loader = Crawl4aiLoader(

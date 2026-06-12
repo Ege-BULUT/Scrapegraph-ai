@@ -35,8 +35,8 @@ class ChromiumLoader(BaseLoader):
         requires_js_support: bool = False,
         storage_state: Optional[str] = None,
         browser_name: str = "chromium",  # default chromium
-        retry_limit: int = 1,
-        timeout: int = 60,
+        retry_limit: int = 2,
+        timeout: int = 90,
         **kwargs: Any,
     ):
         """Initialize the loader with a list of URL paths.
@@ -345,12 +345,22 @@ class ChromiumLoader(BaseLoader):
             try:
                 async with async_playwright() as p, async_timeout.timeout(self.timeout):
                     browser = None
+                    launch_args = dict(self.browser_config)
+                    launch_args.update({
+                        "headless": self.headless,
+                        "proxy": self.proxy,
+                    })
                     if browser_name == "chromium":
-                        browser = await p.chromium.launch(
-                            headless=self.headless,
-                            proxy=self.proxy,
-                            **self.browser_config,
-                        )
+                        args = launch_args.get("args", [])
+                        extra_args = [
+                            "--disable-blink-features=AutomationControlled",
+                            "--no-sandbox",
+                        ]
+                        for a in extra_args:
+                            if a not in args:
+                                args.append(a)
+                        launch_args["args"] = args
+                        browser = await p.chromium.launch(**launch_args)
                     elif browser_name == "firefox":
                         browser = await p.firefox.launch(
                             headless=self.headless,
@@ -365,8 +375,12 @@ class ChromiumLoader(BaseLoader):
                     )
                     await Malenia.apply_stealth(context)
                     page = await context.new_page()
-                    await page.goto(url, wait_until="domcontentloaded")
-                    await page.wait_for_load_state(self.load_state)
+                    await page.goto(url, wait_until="domcontentloaded", timeout=min(self.timeout * 1000, 90000))
+                    await page.wait_for_timeout(3000)
+                    try:
+                        await page.wait_for_load_state("domcontentloaded", timeout=5000)
+                    except Exception:
+                        pass
                     results = await page.content()
                     logger.info("Content scraped")
                     await browser.close()

@@ -7,6 +7,10 @@ with advanced markdown generation, content filtering, and structured data extrac
 This loader uses Crawl4AI's AsyncWebCrawler as an alternative document fetcher,
 providing clean markdown output suitable for LLM consumption.
 
+If Crawl4AI fails due to anti-bot protection (e.g. Cloudflare), the loader
+automatically falls back to launching a stealth-hardened Chrome instance via
+Playwright + Malenia and connecting Crawl4AI to it via CDP.
+
 Usage in node_config:
     "experimental": {
         "backend": "crawl4ai",
@@ -22,6 +26,10 @@ Usage in node_config:
 """
 
 import asyncio
+import os
+import subprocess
+import tempfile
+import time
 from typing import Any, AsyncIterator, Iterator, List, Optional
 
 from langchain_community.document_loaders.base import BaseLoader
@@ -53,7 +61,7 @@ class Crawl4aiLoader(BaseLoader):
         urls: List[str],
         *,
         headless: bool = True,
-        page_timeout: int = 30000,
+        page_timeout: int = 60000,
         output_format: str = "markdown",
         viewport_width: int = 1920,
         viewport_height: int = 1080,
@@ -84,9 +92,103 @@ class Crawl4aiLoader(BaseLoader):
             return getattr(result, "cleaned_html", "") or getattr(result, "html", "") or ""
         return getattr(result, "markdown", "") or getattr(result, "html", "") or ""
 
+    def _ensure_chrome_with_cdp(self):
+        """Launch Chrome with remote debugging port for stealth CDP mode."""
+        chrome_paths = [
+            "chrome", "chromium", "google-chrome", "google-chrome-stable",
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        ]
+        chrome_bin = None
+        for cmd in chrome_paths:
+            try:
+                if cmd.startswith("C:") and os.path.isfile(cmd):
+                    chrome_bin = cmd
+                    break
+                subprocess.run([cmd, "--version"], capture_output=True, timeout=5)
+                chrome_bin = cmd
+                break
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+        if chrome_bin is None:
+            return None, None
+
+        user_data_dir = tempfile.mkdtemp(prefix="crawl4ai_")
+        debug_port = 9223  # use different port to avoid conflicts
+
+        args = [
+            chrome_bin,
+            f"--remote-debugging-port={debug_port}",
+            f"--user-data-dir={user_data_dir}",
+            "--no-first-run", "--no-default-browser-check",
+            "--disable-blink-features=AutomationControlled",
+            "--disable-features=IsolateOrigins,site-per-process",
+            "--disable-web-security",
+        ]
+        if self.headless:
+            args.append("--headless")
+
+        proc = subprocess.Popen(
+            args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+
+        cdp_url = f"ws://127.0.0.1:{debug_port}/devtools/browser"
+        for _ in range(15):
+            time.sleep(1)
+            try:
+                import urllib.request, json
+                resp = urllib.request.urlopen(f"http://127.0.0.1:{debug_port}/json/version", timeout=3)
+                info = json.loads(resp.read())
+                if "webSocketDebuggerUrl" in info:
+                    cdp_url = info["webSocketDebuggerUrl"]
+                    break
+            except Exception:
+                continue
+
+        logger.info(f"Chrome CDP ready at {cdp_url}")
+        return proc, cdp_url
+
+    async def _afetch_with_cdp_stealth(self, url: str) -> str:
+        """Fetch via Crawl4AI connected to our own stealth Chrome via CDP."""
+        from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+
+        chrome_proc, cdp_url = self._ensure_chrome_with_cdp()
+        if chrome_proc is None:
+            return ""
+
+        try:
+            browser_config = BrowserConfig(
+                use_managed_browser=True,
+                cdp_url=cdp_url,
+                headless=self.headless,
+                viewport_width=self.viewport_width,
+                viewport_height=self.viewport_height,
+                ignore_https_errors=True,
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            )
+            crawler_config = CrawlerRunConfig(
+                page_timeout=self.page_timeout,
+                delay_before_return_html=4.0,
+                verbose=False,
+            )
+            async with AsyncWebCrawler(config=browser_config) as crawler:
+                result = await crawler.arun(url=url, config=crawler_config)
+                if result.success:
+                    return self._get_content(result, url)
+                err = getattr(result, 'error_message', '') or 'unknown error'
+                logger.warning(f"Crawl4AI CDP stealth also failed for {url}: {err}")
+                return ""
+        finally:
+            try:
+                chrome_proc.terminate()
+                chrome_proc.wait(timeout=5)
+            except Exception:
+                pass
+
     async def afetch_page(self, url: str) -> str:
         """
         Fetch a single page using Crawl4AI.
+        Falls back to CDP stealth mode if anti-bot protection is detected.
         """
         try:
             from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
@@ -102,6 +204,19 @@ class Crawl4aiLoader(BaseLoader):
             "headless": self.headless,
             "viewport_width": self.viewport_width,
             "viewport_height": self.viewport_height,
+            "enable_stealth": True,
+            "ignore_https_errors": True,
+            "extra_args": [
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-web-security",
+                "--disable-features=IsolateOrigins,site-per-process",
+            ],
+            "headers": {
+                "Accept-Language": "en-US,en;q=0.9,tr;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
+            },
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
         }
         if self.proxy:
             browser_kwargs["proxy_config"] = self.proxy
@@ -110,22 +225,33 @@ class Crawl4aiLoader(BaseLoader):
 
         crawler_config = CrawlerRunConfig(
             page_timeout=self.page_timeout,
-            delay_before_return_html=0.5,
+            delay_before_return_html=4.0,
             verbose=False,
         )
 
         async with AsyncWebCrawler(config=browser_config) as crawler:
             result = await crawler.arun(url=url, config=crawler_config)
 
-            if not result.success:
-                err = getattr(result, 'error_message', '') or 'unknown error'
-                logger.warning(f"Crawl4AI failed to fetch {url}: {err}")
-                return ""
+            if result.success:
+                content = self._get_content(result, url)
+                if not content:
+                    logger.warning(f"Crawl4AI returned empty content for {url}")
+                return content
 
-            content = self._get_content(result, url)
-            if not content:
-                logger.warning(f"Crawl4AI returned empty content for {url}")
-            return content
+            err = getattr(result, 'error_message', '') or 'unknown error'
+            logger.warning(f"Crawl4AI failed to fetch {url}: {err}")
+
+            # If blocked by anti-bot, try CDP stealth fallback
+            is_blocked = "blocked" in err.lower() or "cloudflare" in err.lower() or "challenge" in err.lower()
+            if is_blocked:
+                logger.info(f"Crawl4AI blocked for {url}, trying CDP stealth fallback...")
+                content = await self._afetch_with_cdp_stealth(url)
+                if content:
+                    logger.info(f"CDP stealth fallback succeeded for {url}")
+                    return content
+                logger.warning(f"Crawl4AI CDP fallback also blocked for {url}")
+
+            return ""
 
     def lazy_load(self) -> Iterator[Document]:
         """Synchronously load documents from URLs via Crawl4AI."""
