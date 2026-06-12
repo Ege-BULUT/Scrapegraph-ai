@@ -131,17 +131,26 @@ class ObscuraLoader(BaseLoader):
 
         logger.info(f"Fetching via Obscura CDP: {url}")
         self._ensure_running()
-        async with async_playwright() as p:
-            browser = await p.chromium.connect_over_cdp(self.cdp_url)
-            context = browser.contexts[0] if browser.contexts else await browser.new_context(
-                storage_state=self.storage_state,
-                ignore_https_errors=True,
-            )
-            page = await context.new_page()
-            await page.goto(url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
-            content = await page.content()
-            await page.close()
-            return content
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.connect_over_cdp(self.cdp_url)
+                context = browser.contexts[0] if browser.contexts else await browser.new_context(
+                    storage_state=self.storage_state,
+                    ignore_https_errors=True,
+                )
+                page = await context.new_page()
+                await page.goto(url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
+                content = await page.content()
+                await page.close()
+                return content
+        except Exception as exc:
+            hint = ""
+            if "ECONNREFUSED" in str(exc):
+                hint = (
+                    " Make sure Chrome/Chromium is running with --remote-debugging-port=9222, "
+                    "or set auto_start='docker'/'subprocess' in the Obscura config."
+                )
+            raise RuntimeError(f"Obscura CDP connection failed: {exc}.{hint}") from exc
 
     def lazy_load(self) -> Iterator[Document]:
         try:

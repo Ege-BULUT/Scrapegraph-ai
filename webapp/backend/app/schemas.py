@@ -49,7 +49,7 @@ class ScrapeResponse(BaseModel):
     status: str
     data: Any = None
     error: str | None = None
-    execution_info: dict | None = None
+    execution_info: Any = None
 
 
 class ModelInfo(BaseModel):

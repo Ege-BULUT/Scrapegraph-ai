@@ -74,12 +74,15 @@ class Crawl4aiLoader(BaseLoader):
     def _get_content(self, result, url: str) -> str:
         """Extract content from Crawl4AI result based on output_format."""
         if self.output_format == "markdown":
-            return getattr(result, "markdown", "") or ""
+            content = getattr(result, "markdown", "") or ""
+            if not content:
+                content = getattr(result, "html", "") or ""
+            return content
         elif self.output_format == "html":
             return getattr(result, "html", "") or ""
         elif self.output_format == "text":
-            return getattr(result, "cleaned_html", "") or ""
-        return getattr(result, "markdown", "") or ""
+            return getattr(result, "cleaned_html", "") or getattr(result, "html", "") or ""
+        return getattr(result, "markdown", "") or getattr(result, "html", "") or ""
 
     async def afetch_page(self, url: str) -> str:
         """
@@ -107,16 +110,21 @@ class Crawl4aiLoader(BaseLoader):
 
         crawler_config = CrawlerRunConfig(
             page_timeout=self.page_timeout,
+            delay_before_return_html=0.5,
+            verbose=False,
         )
 
         async with AsyncWebCrawler(config=browser_config) as crawler:
             result = await crawler.arun(url=url, config=crawler_config)
 
             if not result.success:
-                logger.warning(f"Crawl4AI failed to fetch {url}")
+                err = getattr(result, 'error_message', '') or 'unknown error'
+                logger.warning(f"Crawl4AI failed to fetch {url}: {err}")
                 return ""
 
             content = self._get_content(result, url)
+            if not content:
+                logger.warning(f"Crawl4AI returned empty content for {url}")
             return content
 
     def lazy_load(self) -> Iterator[Document]:

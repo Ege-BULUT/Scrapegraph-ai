@@ -418,9 +418,9 @@ class FetchNode(BaseNode):
                 document = loader.load()
 
             if not document or not document[0].page_content.strip():
+                backend_name = self.experimental.get("backend", "ChromiumLoader") if self.experimental else "ChromiumLoader"
                 raise ValueError(
-                    """No HTML body content found in
-                                 the document fetched by ChromiumLoader."""
+                    f"No HTML body content found in the document fetched by {backend_name}."
                 )
 
             parsed_content = document[0].page_content
