@@ -126,7 +126,7 @@ class ObscuraLoader(BaseLoader):
                 "Chrome/Chromium not found. Install Chrome or set auto_start to a different mode."
             )
 
-        user_data_dir = os.path.join(os.path.expanduser("~"), ".scrapegraph", "chrome-debug")
+        user_data_dir = os.path.join(os.path.expanduser("~"), ".scrapegraph", "chrome-profile")
         os.makedirs(user_data_dir, exist_ok=True)
 
         self._process = subprocess.Popen(

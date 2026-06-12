@@ -26,10 +26,6 @@ Usage in node_config:
 """
 
 import asyncio
-import os
-import subprocess
-import tempfile
-import time
 from typing import Any, AsyncIterator, Iterator, List, Optional
 
 from langchain_community.document_loaders.base import BaseLoader
@@ -92,98 +88,94 @@ class Crawl4aiLoader(BaseLoader):
             return getattr(result, "cleaned_html", "") or getattr(result, "html", "") or ""
         return getattr(result, "markdown", "") or getattr(result, "html", "") or ""
 
-    def _ensure_chrome_with_cdp(self):
-        """Launch Chrome with remote debugging port for stealth CDP mode."""
-        chrome_paths = [
-            "chrome", "chromium", "google-chrome", "google-chrome-stable",
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-        ]
-        chrome_bin = None
-        for cmd in chrome_paths:
-            try:
-                if cmd.startswith("C:") and os.path.isfile(cmd):
-                    chrome_bin = cmd
-                    break
-                subprocess.run([cmd, "--version"], capture_output=True, timeout=5)
-                chrome_bin = cmd
-                break
-            except (FileNotFoundError, subprocess.TimeoutExpired):
-                continue
-        if chrome_bin is None:
-            return None, None
+    async def _afetch_with_playwright_fallback(self, url: str) -> str:
+        """Fallback: use Playwright + Malenia directly when Crawl4AI is blocked."""
+        logger.info(f"Crawl4AI blocked, falling back to Playwright direct fetch: {url}")
 
-        user_data_dir = tempfile.mkdtemp(prefix="crawl4ai_")
-        debug_port = 9223  # use different port to avoid conflicts
+        from playwright.async_api import async_playwright
+        from undetected_playwright import Malenia
+        import os
 
-        args = [
-            chrome_bin,
-            f"--remote-debugging-port={debug_port}",
-            f"--user-data-dir={user_data_dir}",
-            "--no-first-run", "--no-default-browser-check",
-            "--disable-blink-features=AutomationControlled",
-            "--disable-features=IsolateOrigins,site-per-process",
-            "--disable-web-security",
-        ]
-        if self.headless:
-            args.append("--headless")
+        raw_html = ""
+        try:
+            async with async_playwright() as p:
+                args = [
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-web-security",
+                    "--disable-features=IsolateOrigins,site-per-process",
+                ]
 
-        proc = subprocess.Popen(
-            args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
+                user_data_dir = os.path.join(os.path.expanduser("~"), ".scrapegraph", "chrome-profile")
+                os.makedirs(user_data_dir, exist_ok=True)
+                storage_path = os.path.join(os.path.expanduser("~"), ".scrapegraph", "chrome-data", "storage_state.json")
 
-        cdp_url = f"ws://127.0.0.1:{debug_port}/devtools/browser"
-        for _ in range(15):
-            time.sleep(1)
-            try:
-                import urllib.request, json
-                resp = urllib.request.urlopen(f"http://127.0.0.1:{debug_port}/json/version", timeout=3)
-                info = json.loads(resp.read())
-                if "webSocketDebuggerUrl" in info:
-                    cdp_url = info["webSocketDebuggerUrl"]
-                    break
-            except Exception:
-                continue
+                storage_state = None
+                if os.path.exists(storage_path):
+                    try:
+                        import json
+                        with open(storage_path) as f:
+                            storage_state = json.load(f)
+                    except Exception:
+                        pass
 
-        logger.info(f"Chrome CDP ready at {cdp_url}")
-        return proc, cdp_url
+                context = await p.chromium.launch_persistent_context(
+                    user_data_dir,
+                    headless=self.headless,
+                    channel="chrome",
+                    args=args,
+                    ignore_https_errors=True,
+                )
+                await Malenia.apply_stealth(context)
 
-    async def _afetch_with_cdp_stealth(self, url: str) -> str:
-        """Fetch via Crawl4AI connected to our own stealth Chrome via CDP."""
-        from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+                if storage_state and "cookies" in storage_state:
+                    try:
+                        await context.add_cookies(storage_state["cookies"])
+                    except Exception:
+                        pass
 
-        chrome_proc, cdp_url = self._ensure_chrome_with_cdp()
-        if chrome_proc is None:
+                page = context.pages[0] if context.pages else await context.new_page()
+                await page.goto(url, wait_until="domcontentloaded",
+                                timeout=min(self.page_timeout, 90000))
+                await page.wait_for_timeout(3000)
+                raw_html = await page.content()
+
+                # Save storage state
+                try:
+                    state = await context.storage_state()
+                    with open(storage_path, "w") as f:
+                        import json
+                        json.dump(state, f)
+                except Exception:
+                    pass
+
+                await context.close()
+        except Exception as e:
+            logger.warning(f"Playwright fallback error for {url}: {e}")
             return ""
 
-        try:
-            browser_config = BrowserConfig(
-                use_managed_browser=True,
-                cdp_url=cdp_url,
-                headless=self.headless,
-                viewport_width=self.viewport_width,
-                viewport_height=self.viewport_height,
-                ignore_https_errors=True,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-            )
-            crawler_config = CrawlerRunConfig(
-                page_timeout=self.page_timeout,
-                delay_before_return_html=4.0,
-                verbose=False,
-            )
-            async with AsyncWebCrawler(config=browser_config) as crawler:
-                result = await crawler.arun(url=url, config=crawler_config)
-                if result.success:
-                    return self._get_content(result, url)
-                err = getattr(result, 'error_message', '') or 'unknown error'
-                logger.warning(f"Crawl4AI CDP stealth also failed for {url}: {err}")
-                return ""
-        finally:
+        if not raw_html.strip():
+            return ""
+
+        if self.output_format == "html":
+            return raw_html
+        elif self.output_format == "text":
             try:
-                chrome_proc.terminate()
-                chrome_proc.wait(timeout=5)
-            except Exception:
-                pass
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(raw_html, "html.parser")
+                return soup.get_text(separator="\n", strip=True)
+            except ImportError:
+                return raw_html
+        else:
+            try:
+                import html2text
+                converter = html2text.HTML2Text()
+                converter.body_width = 0
+                converter.ignore_links = False
+                converter.ignore_images = False
+                return converter.handle(raw_html)
+            except ImportError:
+                return raw_html
 
     async def afetch_page(self, url: str) -> str:
         """
@@ -241,15 +233,15 @@ class Crawl4aiLoader(BaseLoader):
             err = getattr(result, 'error_message', '') or 'unknown error'
             logger.warning(f"Crawl4AI failed to fetch {url}: {err}")
 
-            # If blocked by anti-bot, try CDP stealth fallback
+            # If blocked by anti-bot, use Playwright direct fallback
             is_blocked = "blocked" in err.lower() or "cloudflare" in err.lower() or "challenge" in err.lower()
             if is_blocked:
-                logger.info(f"Crawl4AI blocked for {url}, trying CDP stealth fallback...")
-                content = await self._afetch_with_cdp_stealth(url)
+                logger.info(f"Crawl4AI blocked for {url}, using Playwright direct fallback...")
+                content = await self._afetch_with_playwright_fallback(url)
                 if content:
-                    logger.info(f"CDP stealth fallback succeeded for {url}")
+                    logger.info(f"Playwright fallback succeeded for {url}")
                     return content
-                logger.warning(f"Crawl4AI CDP fallback also blocked for {url}")
+                logger.warning(f"Playwright fallback also returned no content for {url}")
 
             return ""
 
