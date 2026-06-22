@@ -14,7 +14,6 @@ import subprocess
 import shutil
 from typing import AsyncIterator, Iterator, List, Optional
 
-from langchain_community.document_loaders.base import BaseLoader
 from langchain_core.documents import Document
 
 from ..utils import get_logger
@@ -43,7 +42,7 @@ def _check_plasmate() -> str:
     return path
 
 
-class PlasmateLoader(BaseLoader):
+class PlasmateLoader:
     """Fetches pages using Plasmate — a lightweight Rust browser engine that outputs
     Structured Object Model (SOM) instead of raw HTML.
 
@@ -153,6 +152,14 @@ class PlasmateLoader(BaseLoader):
         loader = ChromiumLoader([url], **self.chrome_kwargs)
         docs = loader.load()
         return docs[0].page_content if docs else ""
+
+    def load(self) -> List[Document]:
+        """Load all documents synchronously."""
+        return list(self.lazy_load())
+
+    async def aload(self) -> List[Document]:
+        """Load all documents asynchronously."""
+        return [doc async for doc in self.alazy_load()]
 
     def lazy_load(self) -> Iterator[Document]:
         """Yield Documents one at a time, fetching each URL synchronously."""

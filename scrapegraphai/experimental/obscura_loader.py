@@ -4,7 +4,6 @@ import subprocess
 import time
 from typing import Any, AsyncIterator, Iterator, List, Optional
 
-from langchain_community.document_loaders.base import BaseLoader
 from langchain_core.documents import Document
 
 from ..utils import get_logger
@@ -21,7 +20,7 @@ OBSCURA_DOCKER_CMD = [
 ]
 
 
-class ObscuraLoader(BaseLoader):
+class ObscuraLoader:
     """
     Fetches web pages using Obscura headless browser via CDP.
 
@@ -201,6 +200,14 @@ class ObscuraLoader(BaseLoader):
                     "or set auto_start='docker'/'subprocess'/'chrome' in the Obscura config."
                 )
             raise RuntimeError(f"Obscura CDP connection failed: {exc}.{hint}") from exc
+
+    def load(self) -> List[Document]:
+        """Load all documents synchronously."""
+        return list(self.lazy_load())
+
+    async def aload(self) -> List[Document]:
+        """Load all documents asynchronously."""
+        return [doc async for doc in self.alazy_load()]
 
     def lazy_load(self) -> Iterator[Document]:
         try:

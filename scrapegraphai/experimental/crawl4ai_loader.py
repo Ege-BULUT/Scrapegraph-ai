@@ -28,7 +28,6 @@ Usage in node_config:
 import asyncio
 from typing import Any, AsyncIterator, Iterator, List, Optional
 
-from langchain_community.document_loaders.base import BaseLoader
 from langchain_core.documents import Document
 
 from ..utils import get_logger
@@ -36,7 +35,7 @@ from ..utils import get_logger
 logger = get_logger("crawl4ai-loader")
 
 
-class Crawl4aiLoader(BaseLoader):
+class Crawl4aiLoader:
     """
     Document loader that fetches web pages using Crawl4AI's AsyncWebCrawler.
 
@@ -244,6 +243,14 @@ class Crawl4aiLoader(BaseLoader):
                 logger.warning(f"Playwright fallback also returned no content for {url}")
 
             return ""
+
+    def load(self) -> List[Document]:
+        """Load all documents synchronously."""
+        return list(self.lazy_load())
+
+    async def aload(self) -> List[Document]:
+        """Load all documents asynchronously."""
+        return [doc async for doc in self.alazy_load()]
 
     def lazy_load(self) -> Iterator[Document]:
         """Synchronously load documents from URLs via Crawl4AI."""

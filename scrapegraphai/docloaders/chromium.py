@@ -3,7 +3,6 @@ from typing import Any, AsyncIterator, Iterator, List, Optional, Union
 
 import aiohttp
 import async_timeout
-from langchain_community.document_loaders.base import BaseLoader
 from langchain_core.documents import Document
 
 from ..utils import Proxy, dynamic_import, get_logger, parse_or_search_proxy
@@ -11,7 +10,7 @@ from ..utils import Proxy, dynamic_import, get_logger, parse_or_search_proxy
 logger = get_logger("web-loader")
 
 
-class ChromiumLoader(BaseLoader):
+class ChromiumLoader:
     """Scrapes HTML pages from URLs using a (headless) instance of the
     Chromium web driver with proxy protection.
 
@@ -523,6 +522,24 @@ class ChromiumLoader(BaseLoader):
                     )
             finally:
                 await browser.close()
+
+    def load(self) -> List[Document]:
+        """
+        Load text content from the provided URLs.
+
+        Returns:
+            List[Document]: A list of Document objects.
+        """
+        return list(self.lazy_load())
+
+    async def aload(self) -> List[Document]:
+        """
+        Asynchronously load text content from the provided URLs.
+
+        Returns:
+            List[Document]: A list of Document objects.
+        """
+        return [doc async for doc in self.alazy_load()]
 
     def lazy_load(self) -> Iterator[Document]:
         """
