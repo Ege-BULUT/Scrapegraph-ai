@@ -1,8 +1,8 @@
-> **⚡ Fork Notice** — This is a community fork by [@Ege-BULUT](https://github.com/Ege-BULUT) with added experimental backends (Crawl4AI, Obscura CDP), an enterprise web UI (FastAPI + React), structured JSONL logging, a tutorial modal, launcher, and various security/config fixes. Upstream: [ScrapeGraphAI/Scrapegraph-ai](https://github.com/ScrapeGraphAI/Scrapegraph-ai).
+> **⚡ Fork Notice** - This is a community fork by [@Ege-BULUT](https://github.com/Ege-BULUT) with added experimental backends, an enterprise web UI, structured logging, launcher, and various fixes. Upstream: [ScrapeGraphAI/Scrapegraph-ai](https://github.com/ScrapeGraphAI/Scrapegraph-ai). See [What's New](#fork-features) below.
 
 ---
 
-## 🚀 **Looking for an even faster and simpler way to scrape at scale (only 5 lines of code)?** Check out our enhanced version at [**ScrapeGraphAI.com**](https://scrapegraphai.com/?utm_source=github&utm_medium=readme&utm_campaign=oss_cta&ut#m_content=top_banner)! 🚀
+## 🚀 **Looking for an even faster and simpler way to scrape at scale (only 5 lines of code)?** Check out our enhanced version at [**ScrapeGraphAI.com**](https://scrapegraphai.com/?utm_source=github&utm_medium=readme&utm_campaign=oss_cta&utm_content=top_banner)! 🚀
 
 ---
 
@@ -31,6 +31,103 @@
 <p align="center">
 <a href="https://trendshift.io/repositories/15078" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15078" alt="ScrapeGraphAI%2FScrapegraph-ai | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 <p align="center">
+
+---
+
+## Fork Features
+
+This fork adds an **enterprise-grade web UI**, **experimental scraping backends**, structured JSONL logging, an all-in-one launcher, and multiple quality-of-life fixes on top of upstream ScrapeGraphAI.
+
+### Web UI (FastAPI + React)
+
+A dark-themed, browser-based interface for running scrapers without writing code.
+
+<p align="center">
+  <img src="media/screenshot-main.png" alt="ScrapeGraphAI Web UI" width="700">
+</p>
+
+**Features:**
+- Prompt and URL input with live result panel
+- LLM provider selection (Ollama, OpenAI, Anthropic, DeepSeek, Groq, Mistral, xAI, Google GenAI)
+- Backend switcher: Playwright, Crawl4AI, Obscura CDP
+- Headless mode toggle
+- Structured JSON output viewer
+- Configurable model token budget
+- Built-in tutorial with usage guides, examples, and pro tips
+
+**Tutorial Modal:**
+| Basics | Advanced | Examples | Pro Tips |
+|---|---|---|---|
+| <img src="media/screenshot-tutorial-basics.png" width="200"> | <img src="media/screenshot-tutorial-advanced.png" width="200"> | <img src="media/screenshot-tutorial-examples.png" width="200"> | <img src="media/screenshot-tutorial-protips.png" width="200"> |
+
+Start the UI with one command:
+```bash
+python launcher.py
+```
+
+### Experimental Backends
+
+Beyond the standard Playwright/Selenium backends, this fork ships three experimental backends with stealth and anti-detection capabilities.
+
+| Backend | Description | Best For |
+|---|---|---|
+| **Crawl4AI** | Async web crawler optimized for AI-friendly output (Markdown, structured text). Falls back to Playwright + Malenia stealth when anti-bot protection is detected. | Sites with Cloudflare or bot detection. Produces clean markdown for LLM consumption. |
+| **Obscura CDP** | Connects to an existing Chrome instance via CDP (Chrome DevTools Protocol). Passes authenticated sessions and cookies directly. | Internal tools, authenticated scraping, fine-grained browser control. |
+| **Camoufox** | Firefox-based stealth browser (daijro/camoufox) with anti-fingerprinting. TLS-level impersonation. | Maximum stealth requirements (Linux/macOS). |
+
+**Backend selector in the UI:**
+```python
+# In code configuration:
+graph_config = {
+    "experimental": {
+        "backend": "crawl4ai",       # "playwright", "crawl4ai", "obscura", "camoufox"
+        "crawl4ai": {
+            "headless": True,
+            "output_format": "markdown",
+            "page_timeout": 30000,
+        }
+    }
+}
+```
+
+### All-in-One Launcher
+
+`python launcher.py` handles everything:
+- Checks and auto-installs missing dependencies (poethepoet, Playwright browsers)
+- Creates a persistent Chrome profile with stealth patches for Cloudflare/Turnstile bypass
+- Starts the FastAPI backend + Vite React frontend concurrently
+- Detects available ports automatically
+- `--backend-only` flag for headless server mode
+
+```bash
+# Full stack (default)
+python launcher.py
+
+# Backend only for API access
+python launcher.py --backend-only
+
+# Skip system checks
+python launcher.py --skip-checks
+```
+
+### Structured JSONL Logging
+
+Replaces plain text logging with structured JSONL output for production observability:
+```jsonl
+{"timestamp": "2026-06-22T18:30:00", "level": "INFO", "event": "scrape_start", "backend": "crawl4ai"}
+{"timestamp": "2026-06-22T18:30:05", "level": "INFO", "event": "scrape_complete", "tokens_used": 1250, "duration_ms": 5230}
+```
+
+### Other Improvements
+
+- **torchcodec/FFmpeg crash fix** on Windows (lazy imports, BaseLoader removal, torchcodec mock in test suite)
+- **npx shell=True compat** for Windows `.CMD` resolution
+- **Persistent Chrome profile** with storage state caching across sessions
+- **Malenia stealth** integration for undetected Playwright automation
+- **Auto-port-finding** to avoid port conflicts
+- **`.gitignore`** updated with Python, Node, and agent workspace patterns
+
+---
 
 [ScrapeGraphAI](https://scrapegraphai.com) is a *web scraping* python library that uses LLM and direct graph logic to create scraping pipelines for websites and local documents (XML, HTML, JSON, Markdown, etc.).
 
